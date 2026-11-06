@@ -1,0 +1,121 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 1. User Model
+model User {
+  id          String            @id @default(cuid())
+  name        String?
+  email       String            @unique
+  image       String?
+  workspaces  WorkspaceMember[]
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+}
+
+// 2. Workspace Model (Supports both Personal Vault and Shared Family/Friends Lockers)
+model Workspace {
+  id           String            @id @default(cuid())
+  name         String            // e.g., "Personal Vault"
+  type         WorkspaceType     @default(PERSONAL)
+  currency     String            @default("BDT")
+  members      WorkspaceMember[]
+  accounts     Account[]
+  categories   Category[]
+  transactions Transaction[]
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
+}
+
+enum WorkspaceType {
+  PERSONAL
+  SHARED
+}
+
+model WorkspaceMember {
+  id          String        @id @default(cuid())
+  workspaceId String
+  userId      String
+  role        WorkspaceRole @default(OWNER)
+  workspace   Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt    DateTime      @default(now())
+
+  @@unique([workspaceId, userId])
+}
+
+enum WorkspaceRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+// 3. Account / Wallet Model (e.g., Cash, bKash, Nagad, Bank)
+model Account {
+  id               String        @id @default(cuid())
+  workspaceId      String
+  name             String        // e.g., "bKash Personal", "Cash in Hand"
+  type             AccountType
+  balance          Decimal       @default(0.00) @db.Decimal(12, 2)
+  color            String?       @default("#10b981")
+  workspace        Workspace     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transactionsFrom Transaction[] @relation("FromAccount")
+  transactionsTo   Transaction[] @relation("ToAccount")
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+}
+
+enum AccountType {
+  CASH
+  BANK
+  MOBILE_WALLET
+  SAVINGS
+}
+
+// 4. Category & Monthly Budget Model
+model Category {
+  id           String          @id @default(cuid())
+  workspaceId  String
+  name         String          // e.g., "Food & Dining", "Ride & Commute"
+  type         TransactionType // Defines whether this is an INCOME or EXPENSE category
+  icon         String?
+  color        String?         @default("#10b981")
+  budgetLimit  Decimal?        @db.Decimal(12, 2) // Optional monthly budget limit
+  workspace    Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  transactions Transaction[]
+  createdAt    DateTime        @default(now())
+}
+
+// 5. Transaction Model (Handles Income, Expense, and Wallet-to-Wallet Transfers)
+model Transaction {
+  id            String          @id @default(cuid())
+  workspaceId   String
+  type          TransactionType
+  amount        Decimal         @db.Decimal(12, 2)
+  title         String          // Short description or note
+  date          DateTime        @default(now())
+  
+  fromAccountId String          // Source account for Expense/Transfer, or target account for Income
+  fromAccount   Account         @relation("FromAccount", fields: [fromAccountId], references: [id], onDelete: Cascade)
+  
+  toAccountId   String?         // Destination account (used only when type is TRANSFER)
+  toAccount     Account?        @relation("ToAccount", fields: [toAccountId], references: [id], onDelete: SetNull)
+  
+  categoryId    String?         // Nullable for TRANSFER transactions
+  category      Category?       @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+
+  workspace     Workspace       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+}
